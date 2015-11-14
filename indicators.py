@@ -72,24 +72,23 @@ def get_macds(df_col, s = 26, f = 12, n = 9):
     return(pd.ewma(get_macd(df_col, s, f), span = n))
 
 # Relative strength index
-def get_rsi(df_col, per = 10):
+def get_rsi(df_col, per = 14):
     p_up = [np.nan]*df_col.size
     p_dn = [np.nan]*df_col.size
     for i in range(1, df_col.size):
-        if (df_col[i] - df_col[i-1] > 0):
+        if (df_col[i] > df_col[i-1]):
             p_up[i] = df_col[i]
-        elif (df_col[i] - df_col[i-1] < 0):
+        elif (df_col[i] < df_col[i-1]):
             p_dn[i] = df_col[i]
 
     ma_up = [np.nan]*df_col.size
     ma_dn = [np.nan]*df_col.size
-    rsi = [np.nan]*df_col.size
-    for j in range(per+1, df_col.size):
+    rsi   = [np.nan]*df_col.size
+    for j in range(per, df_col.size):
         ma_up[j] = np.nanmean(p_up[j-per:j])
         ma_dn[j] = np.nanmean(p_dn[j-per:j])
-        rsi[j] = 100-100/(1+ma_up[j]/ma_dn[j])
-    fill = [np.nan]*(per+1)
-    return pd.Series(fill+list(rsi))
+        rsi[j] = 100 - 100/(1 + ma_up[j]/ma_dn[j])
+    return pd.Series(rsi)
 
 # The above functions take an array as an argument, with other optional parameters
 # Each function returns an array, which can be used in other functions
@@ -118,22 +117,22 @@ df['rsi'] = get_rsi(df['Price'])
 #  0: no action
 
 # Strategy 1: Bollinger Bands
-def GetStrategyBollinger(price, n = 20, s = 2):
-    action = [0]*price.size
-    bollUpper, bollLower = get_bollinger(price, n, s)
-    for i in range(1, price.size):
-        if (price[i-1] <= bollUpper[i]) and (price[i] > bollUpper[i]):
+def GetStrategyBollinger(prices, n = 20, s = 2):
+    action = [0]*prices.size
+    bollUpper, bollLower = get_bollinger(prices, n, s)
+    for i in range(1, prices.size):
+        if (prices[i-1] <= bollUpper[i]) and (prices[i] > bollUpper[i]):
             action[i] = -1
-        elif (price[i-1] >= bollLower[i]) and (price[i] < bollLower[i]):
+        elif (prices[i-1] >= bollLower[i]) and (prices[i] < bollLower[i]):
             action[i] = 1     
     return action 
 
 # Strategy 2: Momentum
-def GetStrategyMomentum(price, n = 12):
-    action = [0]*price.size
-    mom  = get_mom(price, n)
-    momEMA = get_mom_ema(price, n)
-    for i in range(1, price.size):
+def GetStrategyMomentum(prices, n = 12):
+    action = [0]*prices.size
+    mom  = get_mom(prices, n)
+    momEMA = get_mom_ema(prices, n)
+    for i in range(1, prices.size):
         if ~np.isnan(mom[i-1]) and ~np.isnan(momEMA[i-1]):
             if (mom[i-1] <= momEMA[i]) and (mom[i] > momEMA[i]):
                 action[i] = 1
@@ -142,10 +141,10 @@ def GetStrategyMomentum(price, n = 12):
     return action         
 
 # Strategy 3: Rate of Change
-def GetStrategyROC(price, n = 10):
-    action = [0]*price.size
-    ROC  = get_roc(price, n)
-    for i in range(1, price.size):
+def GetStrategyROC(prices, n = 10):
+    action = [0]*prices.size
+    ROC  = get_roc(prices, n)
+    for i in range(1, prices.size):
         if ~np.isnan(ROC[i-1]):
             if (ROC[i-1] <= 0) and (ROC[i] > 0):
                 action[i] = 1
@@ -154,10 +153,10 @@ def GetStrategyROC(price, n = 10):
     return action         
 
 # Strategy 4: Acceleration
-def GetStrategyAcceleration(price, n = 12):
-    action = [0]*price.size
-    accel = get_accel(price, n)
-    for i in range(1, price.size):
+def GetStrategyAcceleration(prices, n = 12):
+    action = [0]*prices.size
+    accel = get_accel(prices, n)
+    for i in range(1, prices.size):
         if ~np.isnan(accel[i-1]):
             if (accel[i-1] + 1 <= 0) and (accel[i] > 0):
                 action[i] = 1
@@ -165,9 +164,35 @@ def GetStrategyAcceleration(price, n = 12):
                 action[i] = -1
     return action
 
+# Strategy 5: Moving Average Convergence Difference
+def getStrategyMACD(prices, s = 26, f = 12, n = 9):
+    macd = get_macd(prices, s, f)
+    macds = get_macds(prices, s, f, n)
+    action = [0]*prices.size
+    for i in range(1, prices.size):
+      if (macd[i-1] <= macds[i]) and (macd[i] > macds[i]):
+        action[i] = 1
+      elif (macd[i-1] >= macds[i]) and (macd[i] < macds[i]):
+        action[i] = -1
+    return action
+
+# Strategy 6: Relative Strength Index
+def getStrategyRSI(prices, per = 14):
+    rsi = get_rsi(prices, 14)
+    action = [0]*prices.size
+    for i in range(per, prices.size):
+      if (rsi[i-1] >= 30) and (rsi[i] < 30):
+        action[i] = 1
+      elif (rsi[i-1] <= 70) and (rsi[i] > 70):
+        action[i] = -1
+    return action
 
 
+
+# Add indicator columns to data frame
 df['action1'] = GetStrategyBollinger(df['Price'])
 df['action2'] = GetStrategyMomentum(df['Price'])
 df['action3'] = GetStrategyROC(df['Price'])
 df['action4'] = GetStrategyAcceleration(df['Price'])
+df['action5'] = GetStrategyMACD(df['Price'])
+df['action6'] = GetStrategyRSI(df['Price'])
