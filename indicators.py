@@ -7,7 +7,7 @@
 import numpy as np
 import pandas as pd
 import datetime, dateutil, os, sys
-
+import boosting
 
 # Load csv as a DataFrame object
 df = pd.read_csv('/Users/alecmyres/Documents/G4073_Qnt_Mthds/data_example_MU.csv')
@@ -16,6 +16,16 @@ df.rename(columns = {'split adjusted px':'Price'}, inplace = True)
 df['Date'] = map(lambda x: dateutil.parser.parse(x).strftime('%Y-%m-%d'), df['date'])
 df = df[['Date','Price']].sort('Date').reset_index(drop = True)
 
+# Add y columns
+rolling_window = 5
+threshhold = 0.05
+df['logreturn'] = np.log(df['Price']) - np.log(df['Price'].shift(1))
+df['rollsum'] = pd.rolling_sum(df['logreturn'], rolling_window)
+df['y_buy'] = np.where(df['rollsum'] > threshhold, 1, 0)
+df['y_sell'] = np.where(df['rollsum'] < -threshhold, -1, 0)
+df['y_buy'] = df['y_buy'].shift(-5)
+df['y_sell'] = df['y_sell'].shift(-5)
+del df['rollsum']
 
 # --------------------
 # INDICATORS
@@ -121,9 +131,9 @@ def GetStrategyBollinger(prices, n = 20, s = 2):
     action = [0]*prices.size
     bollUpper, bollLower = get_bollinger(prices, n, s)
     for i in range(1, prices.size):
-        if (prices[i-1] <= bollUpper[i]) and (prices[i] > bollUpper[i]):
+        if (prices[i] > bollUpper[i]):
             action[i] = -1
-        elif (prices[i-1] >= bollLower[i]) and (prices[i] < bollLower[i]):
+        elif (prices[i] < bollLower[i]):
             action[i] = 1     
     return action 
 
@@ -134,9 +144,9 @@ def GetStrategyMomentum(prices, n = 12):
     momEMA = get_mom_ema(prices, n)
     for i in range(1, prices.size):
         if ~np.isnan(mom[i-1]) and ~np.isnan(momEMA[i-1]):
-            if (mom[i-1] <= momEMA[i]) and (mom[i] > momEMA[i]):
+            if (mom[i] > momEMA[i]):
                 action[i] = 1
-            elif (mom[i-1] >= momEMA[i]) and (mom[i] < momEMA[i]):
+            elif (mom[i] < momEMA[i]):
                 action[i] = -1
     return action         
 
@@ -165,7 +175,7 @@ def GetStrategyAcceleration(prices, n = 12):
     return action
 
 # Strategy 5: Moving Average Convergence Difference
-def getStrategyMACD(prices, s = 26, f = 12, n = 9):
+def GetStrategyMACD(prices, s = 26, f = 12, n = 9):
     macd = get_macd(prices, s, f)
     macds = get_macds(prices, s, f, n)
     action = [0]*prices.size
@@ -177,7 +187,7 @@ def getStrategyMACD(prices, s = 26, f = 12, n = 9):
     return action
 
 # Strategy 6: Relative Strength Index
-def getStrategyRSI(prices, per = 14):
+def GetStrategyRSI(prices, per = 14):
     rsi = get_rsi(prices, 14)
     action = [0]*prices.size
     for i in range(per, prices.size):
@@ -196,3 +206,25 @@ df['action3'] = GetStrategyROC(df['Price'])
 df['action4'] = GetStrategyAcceleration(df['Price'])
 df['action5'] = GetStrategyMACD(df['Price'])
 df['action6'] = GetStrategyRSI(df['Price'])
+
+# Split into buy/sell components
+df['action1buy'] = np.where(df['action1'] == -1, 0, df['action1'])
+df['action1sell'] = np.where(df['action1'] == 1, 0, df['action1'])
+df['action2buy'] = np.where(df['action2'] == -1, 0, df['action2'])
+df['action2sell'] = np.where(df['action2'] == 1, 0, df['action2'])
+df['action3buy'] = np.where(df['action3'] == -1, 0, df['action3'])
+df['action3sell'] = np.where(df['action3'] == 1, 0, df['action3'])
+df['action4buy'] = np.where(df['action4'] == -1, 0, df['action4'])
+df['action4sell'] = np.where(df['action4'] == 1, 0, df['action4'])
+df['action5buy'] = np.where(df['action5'] == -1, 0, df['action5'])
+df['action5sell'] = np.where(df['action5'] == 1, 0, df['action5'])
+df['action6buy'] = np.where(df['action6'] == -1, 0, df['action6'])
+df['action6sell'] = np.where(df['action6'] == 1, 0, df['action6'])
+
+
+del df['action1']
+del df['action2']
+del df['action3']
+del df['action4']
+del df['action5']
+del df['action6']
