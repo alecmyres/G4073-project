@@ -17,6 +17,8 @@ def update_weights(df, side):
     # get row index for final row in data frame
     r = df.index[-1]
     n = len(df.index)
+    df['index1'] = range(n)
+    n1 = abs(sum(df.query('y_' + side + ' != 0')['y_'+side]))
 
     # get column names of learners
     learners = [i for i in df.columns if (('action' in i) and (side in i))]
@@ -30,8 +32,16 @@ def update_weights(df, side):
     for m in range(M):
         # get weighted errors for each learner
         errors = []
+
+        # Sample 0 values in y column
+        sa = np.random.choice(df.query('y_' + side + ' == 0').index, size = n1, replace = False)
+        df_sample = pd.concat([df.query('y_' + side + ' != 0'), df.loc[sa]])
+        df_sample.sort_index(axis = 0, inplace = True)
+        sample_index = df_sample['index1']
+        sw = [weights[i] for i in sample_index]
+
         for l in learners:
-            errors.append(np.dot(weights, np.where(df['y_' + side] != df[l], 1, 0))/sum(weights))
+            errors.append(np.dot(sw, np.where(df_sample['y_' + side] != df_sample[l], 1, 0))/sum(sw))
 
         # minimum error and alpha
         minErr, minIndex = min((val, idx) for (idx, val) in enumerate(errors))
@@ -40,8 +50,12 @@ def update_weights(df, side):
         alphas.append(alpha)
 
         # update weight vector
-        errVect = np.where(df['y_' + side] != df[minLearner], 1, 0)
-        weights = np.multiply(weights, np.exp(np.multiply(alpha, errVect)))
+        errVect = np.where(df_sample['y_' + side] != df_sample[minLearner], 1, 0)
+        sw = np.multiply(sw, np.exp(np.multiply(alpha, errVect)))
+        counter = 0
+        for s in sample_index:
+            weights[s] = sw[counter]
+            counter += 1
 
         # exclude learner
         sortedLearners.append(minLearner)
