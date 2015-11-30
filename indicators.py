@@ -10,22 +10,30 @@ import datetime, dateutil, os, sys
 import boosting
 
 # Load csv as a DataFrame object
-df = pd.read_csv('/Users/alecmyres/Documents/G4073_Qnt_Mthds/data_example_MU.csv')
+filepath = '/Users/alecmyres/Documents/G4073_Qnt_Mthds/data_example_MU.csv'
+df = pd.read_csv(filepath)
 df = df[['date','split adjusted px']]
 df.rename(columns = {'split adjusted px':'Price'}, inplace = True)
 df['Date'] = map(lambda x: dateutil.parser.parse(x).strftime('%Y-%m-%d'), df['date'])
 df = df[['Date','Price']].sort('Date').reset_index(drop = True)
 
+# min/max cumulative sum for an array
+def min_max_cum_sum(array):
+  cs = np.cumsum(array)
+  return np.min(cs), np.max(cs)
+
 # Add y columns
-rolling_window = 5
-threshhold = 0.05
+rw = 5 # rolling window
+threshhold = 0.07
 df['logreturn'] = np.log(df['Price']) - np.log(df['Price'].shift(1))
-df['rollsum'] = pd.rolling_sum(df['logreturn'], rolling_window)
-df['y_buy'] = np.where(df['rollsum'] > threshhold, 1, 0)
-df['y_sell'] = np.where(df['rollsum'] < -threshhold, -1, 0)
-df['y_buy'] = df['y_buy'].shift(-5)
-df['y_sell'] = df['y_sell'].shift(-5)
-del df['rollsum']
+# df['rollsum'] = pd.rolling_sum(df['logreturn'], rolling_window)
+df['min_rollsum'] = map(lambda x: min_max_cum_sum(df['logreturn'][x:x+rw])[0], df.index)
+df['max_rollsum'] = map(lambda x: min_max_cum_sum(df['logreturn'][x:x+rw])[1], df.index)
+df['y_buy'] = np.where(df['max_rollsum'] > threshhold, 1, 0)
+df['y_sell'] = np.where(df['min_rollsum'] < -threshhold, -1, 0)
+# df['y_buy'] = df['y_buy'].shift(-5)
+# df['y_sell'] = df['y_sell'].shift(-5)
+# del df['rollsum']
 
 # --------------------
 # INDICATORS
@@ -221,10 +229,20 @@ df['action5sell'] = np.where(df['action5'] == 1, 0, df['action5'])
 df['action6buy'] = np.where(df['action6'] == -1, 0, df['action6'])
 df['action6sell'] = np.where(df['action6'] == 1, 0, df['action6'])
 
-
 del df['action1']
 del df['action2']
 del df['action3']
 del df['action4']
 del df['action5']
 del df['action6']
+
+
+alphas, strategies = boosting.update_weights(df[(df.index > 4800) & (df.index < 5000)], "buy")
+
+df_copy = df
+for i in range(len(alphas)):
+  df_copy[strategies[i] + 'wgt'] = np.where(df[strategies[i]] == 0, -1, 1)*alphas[i]
+
+columns = map(lambda x: x+"wgt", strategies)
+df_copy['final'] = df_copy[columns].sum(axis = 1)
+df_copy[(df.index >= 5000) & (df.index < 5100)]
