@@ -21,7 +21,6 @@ def updatePortfolio(stock, side, size, price):
     buy_update  = size*price if (side == "BUY")  else 0.0
     sell_update = side*price if (side == "SELL") else 0.0
     # Fee includes exchange, broker, and SEC components
-    # TO DO: historical corrections
     fee_update  = (size*-0.002) +\
                   (size*price*-0.0002) +\
                   (size*price*(-20.0/1000000.0) if side == "SELL" else 0.0)
@@ -45,3 +44,15 @@ def updatePNL(stock, closing_price):
         print "Error:", stock, "not in portfolio"
 
 
+
+# Portfolio allocation
+# IDEAS:
+# Limits for single stock positions (% of portfolio)
+# Limits for sector positions (% range of portfolio)
+# Limits for single day buy/sell amounts
+# Stop loss logic
+# Manage/minimize cash component of portfolio 
+
+# TO DO:
+# Historic fee corrections
+# Interest?
