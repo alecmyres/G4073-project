@@ -1,39 +1,47 @@
-# Analyze trading (pnl, max drawdown, etc.)
+# Maintain portfolio, analyze trading (pnl, max drawdown, etc.)
 # Alec Myres
 # MATH G4073 - Columbia University
                                                                    
 # Load useful python libraries
 import numpy as np
 import pandas as pd
-import datetime, dateutil, os, sys
 
 
-# Find pnl
-# argument: dataframe with columns "Price", "Side", and "Size"
-def netPNL(df):
-    amtBot  = 0
-    amtSold = 0
-    pos  = 0
-    fees = 0
-    pnl  = []
-    # Find pnl day by day
-    for i in df.index:
-        if df['Side'][i] == "BUY":
-            amtBot = amtBot + df['Price'][i]*df['Size'][i]
-            pos += df['Size'][i]
-            fees += df['Size'][i]*(-0.002) # Exchange fees
-        elif df['Side'][i] == "SELL":
-            amtSold = amtSold + df['Price'][i]*df['Size'][i]
-            pos = pos - df['Size'][i]
-            fees += df['Size'][i]*(-0.002) # Exchange fees
-            fees += df['Size'][i]*df['Price'][i]*(-20.0/1000000.0) # SEC fees
-        pnl.append(amtSold - amtBot + pos*df['Price'][i] + fees)
-    # return pnl column
-    return pnl
+# Portfolio dictionary
+# stock:[Position, Amount Bought, Amount Sold, fees, pnl, max position value]
+portfolio = dict()
 
+# Add trade and update portfolio
+# side: "BUY" or "SELL"
+# size: number of shares
+# price: share price
+def updatePortfolio(stock, side, size, price):
+    global portfolio
+    position_update = size if (side == "BUY") else -size
+    buy_update  = size*price if (side == "BUY")  else 0.0
+    sell_update = side*price if (side == "SELL") else 0.0
+    # Fee includes exchange, broker, and SEC components
+    # TO DO: historical corrections
+    fee_update  = (size*-0.002) +\
+                  (size*price*-0.0002) +\
+                  (size*price*(-20.0/1000000.0) if side == "SELL" else 0.0)
+    if stock in portfolio.keys():
+        # Update portfolio
+        portfolio[stock][0] += position_update
+        portfolio[stock][1] += buy_update
+        portfolio[stock][2] += sell_update
+        portfolio[stock][3] += fee_update
+    else:
+        portfolio[stock] = [position_update, buy_update, sell_update, fee_update, 0.0, 0.0]
 
-# Max drawdown calculation
-# argument: dataframe with "pnl" column
-def maxDrawdown(df):
-    return pd.expanding_max(df['pnl']) - df['pnl']
+# Update pnl for a stock
+def updatePNL(stock, closing_price):
+    global portfolio
+    if stock in portfolio.keys():
+        info = portfolio[stock]
+        # PNL = cash in - cash out + fees + market value of position
+        portfolio[stock][4] = info[2] - info[1] + info[3] + info[0]*closing_price
+    else:
+        print "Error:", stock, "not in portfolio"
+
 
