@@ -6,12 +6,23 @@
 import numpy as np
 import pandas as pd
 
+# Cash and portfolio values
+cash_value = 1000000.0
+port_value = 0.0
 
 # Portfolio dictionary
 # stock:[Position, Amount Bought, Amount Sold, fees, pnl, max position value]
 portfolio = dict()
 
-# Add trade and update portfolio
+# Sector lookup
+sectors = dict()
+# ADD SECTOR INFO
+
+# Parameters
+max_stock_percent = 0.05
+
+
+# Add valid trade and update portfolio
 # side: "BUY" or "SELL"
 # size: number of shares
 # price: share price
@@ -32,6 +43,7 @@ def updatePortfolio(stock, side, size, price):
         portfolio[stock][3] += fee_update
     else:
         portfolio[stock] = [position_update, buy_update, sell_update, fee_update, 0.0, 0.0]
+    return
 
 # Update pnl for a stock
 def updatePNL(stock, closing_price):
@@ -42,7 +54,24 @@ def updatePNL(stock, closing_price):
         portfolio[stock][4] = info[2] - info[1] + info[3] + info[0]*closing_price
     else:
         print "Error:", stock, "not in portfolio"
+    return
 
+# Check trade signal for valid portfolio inclusion
+# Set trade size based on risk/portfolio settings
+def checkTrade(stock, side, price):
+    global portfolio
+    # Check available portfolio space
+    
+    # Set trade size
+
+    # Set price to be worse than closing price
+    slip_rate = 5    # bps
+    adjust = round(max(0.01, price*slip_rate/10000.0), 2)
+    price  = price + (adjust if (side == "BUY") else -adjust)
+    
+    # Add trade to portfolio
+    updatePortfolio(stock, side, size, price)
+    return
 
 
 # Portfolio allocation
