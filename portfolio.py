@@ -26,8 +26,9 @@ max_stock_percent = 0.05
 # side: "BUY" or "SELL"
 # size: number of shares
 # price: share price
-def updatePortfolio(stock, side, size, price):
+def addTrade(stock, side, size, price):
     global portfolio
+    global cash_value
     position_update = size if (side == "BUY") else -size
     buy_update  = size*price if (side == "BUY")  else 0.0
     sell_update = side*price if (side == "SELL") else 0.0
@@ -42,7 +43,10 @@ def updatePortfolio(stock, side, size, price):
         portfolio[stock][2] += sell_update
         portfolio[stock][3] += fee_update
     else:
+        # Add new portfolio element
         portfolio[stock] = [position_update, buy_update, sell_update, fee_update, 0.0, 0.0]
+    # Update overall cash and portfolio values
+    cash_value += size*price*(1 if (side == "SELL") else -1) + fee_update
     return
 
 # Update pnl for a stock
@@ -56,22 +60,38 @@ def updatePNL(stock, closing_price):
         print "Error:", stock, "not in portfolio"
     return
 
+# Find total portfolio value
+def portValue():
+    global portfolio
+    global port_value
+    port_value = 0.0
+    # Add value from each 
+    for stock in portfolio.keys():
+        closing_price = 0.0 # TO DO
+        port_value += portfolio[stock][0]*closing_price
+    return
+
+
 # Check trade signal for valid portfolio inclusion
 # Set trade size based on risk/portfolio settings
 def checkTrade(stock, side, price):
     global portfolio
     # Check available portfolio space
+
     
     # Set trade size
-
+    # find average daily volume for the stock
+    
     # Set price to be worse than closing price
     slip_rate = 5    # bps
     adjust = round(max(0.01, price*slip_rate/10000.0), 2)
     price  = price + (adjust if (side == "BUY") else -adjust)
     
     # Add trade to portfolio
-    updatePortfolio(stock, side, size, price)
+    addTrade(stock, side, size, price)
     return
+
+
 
 
 # Portfolio allocation
