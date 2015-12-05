@@ -8,68 +8,105 @@ import pandas as pd
 
 # Cash and portfolio values
 cash_value = 1000000.0
-port_value = 0.0
 
-# Portfolio dictionary
-# stock:[Position, Amount Bought, Amount Sold, fees, pnl, max position value]
-portfolio = dict()
-
-# Sector lookup
-sectors = dict()
-# ADD SECTOR INFO
-
-# Parameters
-max_stock_percent = 0.05
+# Fee includes exchange, broker, and SEC components
+def calcFees(size, side, price):
+    fees  = (size*-0.002) +\
+            (size*price*-0.0002) +\
+            (size*price*(-20.0/1000000.0) if side == "SELL" else 0.0)
+    return fees
 
 
-# Add valid trade and update portfolio
-# side: "BUY" or "SELL"
-# size: number of shares
-# price: share price
-def addTrade(stock, side, size, price):
-    global portfolio
-    global cash_value
-    position_update = size if (side == "BUY") else -size
-    buy_update  = size*price if (side == "BUY")  else 0.0
-    sell_update = side*price if (side == "SELL") else 0.0
-    # Fee includes exchange, broker, and SEC components
-    fee_update  = (size*-0.002) +\
-                  (size*price*-0.0002) +\
-                  (size*price*(-20.0/1000000.0) if side == "SELL" else 0.0)
-    if stock in portfolio.keys():
-        # Update portfolio
-        portfolio[stock][0] += position_update
-        portfolio[stock][1] += buy_update
-        portfolio[stock][2] += sell_update
-        portfolio[stock][3] += fee_update
-    else:
-        # Add new portfolio element
-        portfolio[stock] = [position_update, buy_update, sell_update, fee_update, 0.0, 0.0]
-    # Update overall cash and portfolio values
-    cash_value += size*price*(1 if (side == "SELL") else -1) + fee_update
-    return
+# Stock class
+class Stock:
+    # initialize variables
+    def __init__(self, ticker, industry):
+        self.ticker = ticker
+        self.industry = industry
+        self.position = 0
+        self.amtBought = 0.0
+        self.amtSold = 0.0
+        self.fees = 0.0
+        self.pnl = 0.0
+        self.last_price = 0.0
+        self.max_mkt_val = 0.0
 
-# Update pnl for a stock
-def updatePNL(stock, closing_price):
-    global portfolio
-    if stock in portfolio.keys():
-        info = portfolio[stock]
-        # PNL = cash in - cash out + fees + market value of position
-        portfolio[stock][4] = info[2] - info[1] + info[3] + info[0]*closing_price
-    else:
-        print "Error:", stock, "not in portfolio"
-    return
+    # size: number of shares (integer)
+    # side: "BUY" or "SELL" (string)
+    # price: execution price (float)
+    def addTrade(self, size, side, price):
+        dir_size = size if (side == "BUY") else -size
+        # Zero out max mkt value if new position is taken on
+        if ((self.size == 0) & (size != 0)) or (np.sign(self.size) != np.sign(self.size + dir_size)):
+            self.max_mkt_val = 0.0
+        self.position += dir_size
+        self.amtBought += (size*price if (side == "BUY")  else 0.0)
+        self.amtSold += (size*price if (side == "SELL")  else 0.0)
+        self.fees += calcFees(size, side, price)
 
-# Find total portfolio value
-def portValue():
-    global portfolio
-    global port_value
-    port_value = 0.0
-    # Add value from each 
-    for stock in portfolio.keys():
-        closing_price = 0.0 # TO DO
-        port_value += portfolio[stock][0]*closing_price
-    return
+    # Update pnl for stock with latest price
+    def updatePNL(self, last_price):
+        self.last_price = last_price
+        self.pnl = self.amtSold - self.amtBought + self.fees + self.position*last_price
+        self.max_mkt_val = max(self.max_mkt_val, self.position*last_price)
+
+
+# Portfolio class
+class Portfolio:
+    def __init__(self, name, cash):
+        self.name = name
+        self.stocks = dict()
+        self.industries = dict()
+        self.cash_value = cash
+        self.port_value = 0.0
+
+    def addTrade(self, ticker, industry, size, side, price):
+        # Check if stock exists in portfolio, add if needed
+        if ticker not in self.stocks.keys():
+            self.stocks[ticker] = Stock(ticker, industry)
+        # Add trade, update cash value
+        self.stocks[ticker].addTrade(size, side, price)
+        self.cash_value += size*price*(1 if (side == "SELL") else -1) +\
+                           calcFees(size, side, price)
+
+    def updatePortValue(self):
+        # Reset portfolio and sector values
+        self.port_value = 0.0
+        for i in self.industries.keys():
+            self.industries[i] = 0.0
+        for ticker in self.stocks.keys():
+            pv = (self.stocks[ticker].position)*(self.stocks[ticker].last_price)
+            self.port_value += pv
+            industry = self.stocks[ticker].industry
+            if industry not in self.industries.keys():
+                self.industries[industry] = 0
+            self.industries[industry] += abs(pv)
+
+# Risk Parameters
+max_stock_percent = 0.025
+max_sector_percent = 0.20
+max_adv_percent = 0.05
+
+# ------------
+# TEST
+# ------------
+
+test = pd.DataFrame()
+size = 50
+test['date'] = range(size)
+test['price'] = 25 + np.cumsum(np.random.normal(size = size))
+test['action'] = np.random.choice([-1,0,1], size = size, p = [.2, .6, .2])
+
+portfolio = Portfolio("tester", 100000.0)
+for i in test.index:
+    size = 100 if (test['action'][i] != 0) else 0
+    side = "BUY" if (test['action'][i] == 1) else "SELL"
+    portfolio.addTrade("ABC", "tech", size, side, test['price'][i])
+
+# ------------
+# END TEST
+# ------------
+
 
 
 # Check trade signal for valid portfolio inclusion
@@ -88,8 +125,9 @@ def checkTrade(stock, side, price):
     price  = price + (adjust if (side == "BUY") else -adjust)
     
     # Add trade to portfolio
-    addTrade(stock, side, size, price)
+
     return
+
 
 
 
@@ -104,4 +142,5 @@ def checkTrade(stock, side, price):
 
 # TO DO:
 # Historic fee corrections
-# Interest?
+# Interest (short/long/cash)?
+# 
