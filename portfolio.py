@@ -35,7 +35,7 @@ class Stock:
         self.curr_amtBought = 0.0
         self.curr_amtSold = 0.0
         self.curr_pnl = 0.0
-        self.trade_entry = 0.0
+        self.curr_mkt_entry = 0.0
         self.last_trade_dt = '1900-01-01'
 
     # size: number of shares (integer)
@@ -44,24 +44,22 @@ class Stock:
     def addTrade(self, size, side, price):
         dir_size = size if (side == "BUY") else -size
         # Reset max mkt value if new position is taken on
-        s1 = np.sign(self.position)
-        s2 = np.sign(self.position + dir_size)
-        if ((self.position == 0) & (size != 0)):
-            self.curr_amtBought = (size*price if (side == "BUY") else 0.0)
-            self.curr_amtSold = (size*price if (side == "SELL") else 0.0)
-            self.trade_entry = size*price
-        #elif ((s1 != s2) & (s1 + s2 == 0)):
-        #    resid = self.position + dir_size
-        #    self.curr_amtBought = (abs(resid)*price if (side == "BUY") else 0.0)
-        #    self.curr_amtSold = (abs(resid)*price if (side == "SELL") else 0.0)
-        #    self.max_mkt_val = resid*price
-        else:
-            self.curr_amtBought += (size*price if (side == "BUY") else 0.0)
-            self.curr_amtSold += (size*price if (side == "SELL") else 0.0)
+        if self.position == 0:
+            self.curr_amtBought = 0.0
+            self.curr_amtSold = 0.0
+        if self.position == 0 and size != 0:
+            self.max_mkt_val = size*price
         self.position += dir_size
+        self.curr_amtBought += (size*price if (side == "BUY") else 0.0)
+        self.curr_amtSold += (size*price if (side == "SELL") else 0.0)
+        self.curr_mkt_entry = abs(self.curr_amtSold - self.curr_amtBought)
         self.amtBought += (size*price if (side == "BUY") else 0.0)
         self.amtSold += (size*price if (side == "SELL") else 0.0)
-        self.fees += calcFees(size, side, price)
+        addfees = calcFees(size, side, price)
+        if addfees > 0:
+            print "FEES", self.ticker, size, side, price
+        else:
+            self.fees += calcFees(size, side, price)
         self.last_price = price
 
     # Update pnl for stock with latest price
@@ -69,7 +67,9 @@ class Stock:
         self.last_price = last_price
         self.pnl = self.amtSold - self.amtBought + self.fees + self.position*last_price
         self.curr_pnl = self.curr_amtSold - self.curr_amtBought + self.position*last_price
-        self.max_mkt_val = max(self.max_mkt_val, abs(self.trade_entry) + self.curr_pnl)
+        if self.position == 0:
+            self.max_mkt_val = 0.0
+        self.max_mkt_val = max(self.max_mkt_val, self.curr_mkt_entry + self.curr_pnl)
 
 
 # Portfolio class
@@ -116,7 +116,7 @@ class Portfolio:
 
 # Check trade signal for valid portfolio inclusion
 # Set trade size based on risk/portfolio settings
-def checkTrade(ticker, industry, price, action, date):
+def checkTrade(ticker, industry, price, action, date, PRC, VOL):
     global portfolio
     global max_stock_percent
     global max_sector_percent
@@ -140,19 +140,20 @@ def checkTrade(ticker, industry, price, action, date):
         print "ERROR w/ action!"
         return
     position = portfolio.stocks[ticker].position
-    port_value = portfolio.port_value + portfolio.cash_value
+    port_value = portfolio.port_value
+    start_cash = portfolio.start_cash
     # Check available portfolio space
     port_alloc = (1.0/margin_add_percent)*portfolio.cash_value - port_value
     av_port_space = max(port_alloc, 0.0)
     # Check available sector space
     if industry not in portfolio.industries.keys():
         portfolio.industries[industry] = 0.0
-    ind_alloc = portfolio.industries[industry]/port_value
-    av_sector_space = max((max_sector_percent - ind_alloc), 0.0)*port_value
+    ind_alloc = portfolio.industries[industry]/max(port_value, 0.25*start_cash)
+    av_sector_space = max((max_sector_percent - ind_alloc), 0.0)*max(port_value, 0.25*start_cash)
     # Check available stock space
-    stock_alloc = portfolio.stocks[ticker].position*price/port_value
-    av_stock_space = max((max_stock_percent - stock_alloc), 0.0)*port_value
-    available_space = min(av_port_space, av_sector_space, av_stock_space)
+    stock_alloc = portfolio.stocks[ticker].position*price/max(port_value, 0.25*start_cash)
+    av_stock_space = max((max_stock_percent - stock_alloc), 0.0)*max(port_value, 0.25*start_cash)
+    available_space = min(av_port_space, av_sector_space, av_stock_space, 0.1*VOL*PRC, 20000.0)
     # find average daily volume for the stock
     #adv = 1000000 # shares per day
     # Set trade size
@@ -162,17 +163,25 @@ def checkTrade(ticker, industry, price, action, date):
     #else:
     #    available_space = min(adv_alloc, available_space)
     #trade_size = int(round(available_space/price, -2))
+    # Keep positions within limits
     trade_size = 100
-    if (position == 100) and (action == 1):
+    if (position >= 500) and (action == 1):
         trade_size = 0
-    elif (position == -100) and (action == -1):
+    elif (position <= -500) and (action == -1):
         trade_size = 0
     else:
-        trade_size = min(100, available_space/price)
+        trade_size = max(100, round(available_space/price, -2))
+    # Don't flip possitions from pos/neg, just zero out
+    if ((side == "BUY") & (position < 0) & (position + trade_size > 0)):
+        trade_size = abs(position)
+    if ((side == "SELL") & (position > 0) & (position - trade_size < 0)):
+        trade_size = abs(position)
     # Set price to be worse than closing price
     adjust = round(max(0.01, price*slip_rate_bps/10000.0), 2)
     price  = price + (adjust if (side == "BUY") else -adjust)
     # Add trade to portfolio
+    if (PRC < 6) or (PRC > 500):
+        trade_size = 0
     if action == 0:
         trade_size = 0
     portfolio.addTrade(ticker, industry, trade_size, side, price, date)
@@ -211,16 +220,15 @@ def checkStopLoss():
     for ticker in portfolio.stocks.keys():
         pos = portfolio.stocks[ticker].position
         curr_pnl = portfolio.stocks[ticker].curr_pnl
-        entry_val = abs(portfolio.stocks[ticker].trade_entry)
+        entry_val = portfolio.stocks[ticker].curr_mkt_entry
         max_val = portfolio.stocks[ticker].max_mkt_val
-        loss = (abs(max_val) - (entry_val + curr_pnl))/abs(max_val) if (pos != 0) else 0
+        loss = (max_val - (entry_val + curr_pnl))/max_val if (pos != 0) else 0
         if loss > stop_loss_percent:
             close_dir = "BUY" if (pos < 0) else "SELL"
             industry = portfolio.stocks[ticker].industry
             close_px = portfolio.stocks[ticker].last_price
             date = portfolio.stocks[ticker].last_trade_dt
             portfolio.addTrade(ticker, industry, abs(pos), close_dir, close_px, date)
-            print "STOP LOSS"
 
 # Load LIBOR rates
 #libor = pd.read_csv('libor.csv')
@@ -245,7 +253,7 @@ max_sector_percent = 0.15 # Set to reasonable level if industry lookup works oka
 max_adv_percent = 0.02
 margin_add_percent = 0.50
 margin_call_percent = 0.30
-stop_loss_percent = 0.20
+stop_loss_percent = 0.10
 slip_rate_bps = 5
 days_between_trades = 5
 
@@ -255,7 +263,7 @@ files_dir = "/Users/alecmyres/Documents/G4073_Qnt_Mthds/data/"
 
 
 # Portfolio
-start_cash = 10000000.0
+start_cash = 100000000.0
 
 
 
@@ -298,7 +306,8 @@ def runYearFile(file):
     df['year'] = map(lambda x: int(x[0:4]), df['Date'])
     year = max(set(df['year']))
     df = df.query('year == @year')
-    stock_list = list(df.Stock.unique())[0:100]
+    all_syms = set(df.Stock.unique())
+    stock_list = all_syms - set(df.query('PRC < 0.0 or adjustedPRC < 0').Stock.unique())
     df = df.query('Stock in @stock_list').reset_index(drop = True)
     # Work through signals day by day
     for i in df.index:
@@ -306,20 +315,28 @@ def runYearFile(file):
         date = df['Date'][i]
         price = df['adjustedPRC'][i]
         signal = df['Signal'][i]
+        PRC = df['PRC'][i]
+        VOL = df['VOL'][i]
         industry = industryLookup(ticker)
         # check trade and update stock pnl
-        checkTrade(ticker, industry, price, signal, date)
+        checkTrade(ticker, industry, price, signal, date, PRC, VOL)
         portfolio.stocks[ticker].updatePNL(price)
         # resettle calculate/settle portfolio each day
         if date != last_date:
             print date
             portfolio.updatePortValue()
-            #checkStopLoss()
+            checkStopLoss()
             #checkMarginCall()
             dates.append(date)
             cash_value.append(portfolio.cash_value)
             port_value.append(portfolio.port_value)
             fees.append(portfolio.fees)
+            indu_count.append(len(portfolio.industries.keys()))
+            positions = 0
+            for ticker in portfolio.stocks.keys():
+                if portfolio.stocks[ticker].position != 0:
+                    positions += 1
+            pos_count.append(positions)
         # update last date
         last_date=date
     # Final portfolio settle
@@ -338,19 +355,22 @@ dates = []
 fees = []
 cash_value = []
 port_value = []
+indu_count = []
+pos_count  = []
 
 # Work through file for each year
 for file in files:
     print file
     runYearFile(file)
+    stats = pd.DataFrame()
+    stats['Date'] = dates
+    stats['cash_value'] = cash_value
+    stats['port_value'] = port_value
+    stats['fees'] = fees
+    stats['indu'] = indu_count
+    stats['postions'] = pos_count
+    stats.to_csv(files_dir + file.split('.')[0] + "portfolio_stats.csv")
 
-# Collect performance measures
-stats = pd.DataFrame()
-stats['Date'] = dates
-stats['cash_value'] = cash_value
-stats['port_value'] = port_value
-stats['fees'] = fees
-stats.to_csv(files_dir + "portfolio_stats.csv")
 
 
 
