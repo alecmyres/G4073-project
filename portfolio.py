@@ -188,7 +188,7 @@ def checkTrade(ticker, industry, price, action, date, PRC, VOL):
     return
 
 # Check for margin call, sell assets if needed
-def checkMarginCall():
+def checkMarginCall(date):
     global portfolio
     global margin_call_percent
     excess_margin = (1.0/margin_call_percent)*portfolio.cash_value - portfolio.port_value
@@ -196,21 +196,31 @@ def checkMarginCall():
         # Sell assets to get excess margin positive again 
         liq_amt = abs(excess_margin)
         print "MARGIN CALL SELL"
-        # Randomly sell some assets
-        while liq_amt > 0:
-            ticker = np.random.choice(portfolio.stocks.keys())
+        # Get poor performing stocks to close out
+        margins = pd.DataFrame()
+        tickers = []
+        positions = []
+        pnls = []
+        for ticker in portfolio.stocks.keys():
+            tickers.append(ticker)
+            positions.append(portfolio.stocks[ticker].position)
+            pnls.append(portfolio.stocks[ticker].curr_pnl)
+        margins['ticker'] = tickers
+        margins['position'] = positions
+        margins['pnl'] = pnls
+        margins = margins.query('position != 0').sort('pnl').reset_index(drop = True)
+        # Sell out 
+        for i in range(min(5, len(margins.index))):
+            ticker = margins['ticker'][i]
             industry = portfolio.stocks[ticker].industry
-            position = portfolio.stocks[ticker].position
-            date = portfolio.stocks[ticker].last_trade_dt
-            if position >= 0:
-                side = "SELL"
-                size = position
-            else:
+            position = margins['position'][i]
+            if position <= 0:
                 side = "BUY"
-                size = abs(position)
+            else:
+                side = "SELL"
             price = portfolio.stocks[ticker].last_price
-            portfolio.addTrade(ticker, industry, size, side, price, date)
-            liq_amt -= size*price
+            portfolio.addTrade(ticker, industry, abs(position), side, price, date)
+        portfolio.updatePortValue()
     return
     
 # Check for stop loss
@@ -249,7 +259,7 @@ def checkStopLoss():
 
 # Risk Parameters 
 max_stock_percent = 0.02
-max_sector_percent = 0.15 # Set to reasonable level if industry lookup works okay
+max_sector_percent = 0.10 # Set to reasonable level if industry lookup works okay
 max_adv_percent = 0.02
 margin_add_percent = 0.50
 margin_call_percent = 0.30
@@ -326,7 +336,7 @@ def runYearFile(file):
             print date
             portfolio.updatePortValue()
             checkStopLoss()
-            #checkMarginCall()
+            checkMarginCall(date)
             dates.append(date)
             cash_value.append(portfolio.cash_value)
             port_value.append(portfolio.port_value)
@@ -342,12 +352,12 @@ def runYearFile(file):
     # Final portfolio settle
     portfolio.updatePortValue()
     #checkStopLoss()
-    #checkMarginCall()
+    #checkMarginCall(date)
     return
 
 
 # Load data, convert date, sort by date
-files = sorted(os.listdir(files_dir))
+files = sorted([i for i in os.listdir(files_dir) if 'csv' in i])
 # Initialize portfolio
 portfolio = Portfolio("main", start_cash)
 last_date = '1900-01-01'
