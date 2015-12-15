@@ -15,7 +15,7 @@ import datetime, dateutil, os, sys
 # Fee includes exchange, broker, and SEC components
 def calcFees(size, side, price):
     fees  = (size*-0.001) +\
-            (size*price*-0.0002) +\
+            (size*price*-0.0004) +\
             (size*price*(-20.0/1000000.0) if side == "SELL" else 0.0)
     return fees
 
@@ -167,9 +167,9 @@ def checkTrade(ticker, industry, price, action, date, PRC, VOL):
     #trade_size = int(round(available_space/price, -2))
     # Keep positions within limits
     trade_size = 100
-    if (position >= 500) and (action == 1):
+    if (position*price >= 0.015*portfolio.cash_value) and (action == 1):
         trade_size = 0
-    elif (position <= -500) and (action == -1):
+    elif (position*price <= -0.015*portfolio.cash_value) and (action == -1):
         trade_size = 0
     else:
         trade_size = max(100, round(available_space/price, -2))
