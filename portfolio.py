@@ -37,6 +37,7 @@ class Stock:
         self.curr_pnl = 0.0
         self.curr_mkt_entry = 0.0
         self.last_trade_dt = '1900-01-01'
+        self.last_info_dt = '1900-01-01'
 
     # size: number of shares (integer)
     # side: "BUY" or "SELL" (string)
@@ -89,6 +90,7 @@ class Portfolio:
             self.stocks[ticker] = Stock(ticker, industry)
         # Add trade, update cash value
         self.stocks[ticker].addTrade(size, side, price)
+        self.stocks[ticker].last_info_dt = date
         if size != 0:
             self.stocks[ticker].last_trade_dt = date
 
@@ -153,7 +155,7 @@ def checkTrade(ticker, industry, price, action, date, PRC, VOL):
     # Check available stock space
     stock_alloc = portfolio.stocks[ticker].position*price/max(port_value, 0.25*start_cash)
     av_stock_space = max((max_stock_percent - stock_alloc), 0.0)*max(port_value, 0.25*start_cash)
-    available_space = min(av_port_space, av_sector_space, av_stock_space, 0.1*VOL*PRC, 20000.0)
+    available_space = min(av_port_space, av_sector_space, av_stock_space, 0.05*VOL*PRC, 20000.0)
     # find average daily volume for the stock
     #adv = 1000000 # shares per day
     # Set trade size
@@ -180,7 +182,7 @@ def checkTrade(ticker, industry, price, action, date, PRC, VOL):
     adjust = round(max(0.01, price*slip_rate_bps/10000.0), 2)
     price  = price + (adjust if (side == "BUY") else -adjust)
     # Add trade to portfolio
-    if (PRC < 6) or (PRC > 500):
+    if (PRC < 6) or (PRC > 250):
         trade_size = 0
     if action == 0:
         trade_size = 0
@@ -222,7 +224,30 @@ def checkMarginCall(date):
             portfolio.addTrade(ticker, industry, abs(position), side, price, date)
         portfolio.updatePortValue()
     return
-    
+
+# Check for "dead" tickers
+def checkDeadTickers(date):
+    global portfolio
+    date_now = dateutil.parser.parse(date)
+    for ticker in portfolio.stocks.keys():
+        if portfolio.stocks[ticker].position != 0:
+            last_info = portfolio.stocks[ticker].last_info_dt
+            date_info = dateutil.parser.parse(last_info)
+            if (date_now - date_info).days > 10:
+                print "DEAD TICKER", ticker
+                # Sell out position
+                position = portfolio.stocks[ticker].position
+                industry = portfolio.stocks[ticker].industry
+                if position > 0:
+                    side = "SELL"
+                    price = round(portfolio.stocks[ticker].last_price*0.99, 2)
+                else:
+                    side = "BUY"
+                    price = round(portfolio.stocks[ticker].last_price*1.01, 2)
+                portfolio.addTrade(ticker, industry, abs(position), side, price, date)
+    return
+
+
 # Check for stop loss
 def checkStopLoss():
     global portfolio
@@ -334,6 +359,7 @@ def runYearFile(file):
         # resettle calculate/settle portfolio each day
         if date != last_date:
             print date
+            checkDeadTickers(date)
             portfolio.updatePortValue()
             checkStopLoss()
             checkMarginCall(date)
